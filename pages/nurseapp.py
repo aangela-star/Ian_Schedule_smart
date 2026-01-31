@@ -8,55 +8,9 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils.dataframe import dataframe_to_rows
 from datetime import datetime
 import io
-import re
-import random
-import numpy as np
-
 
 # ==========================================
-# 🔒 安全守門員：登入檢查系統
-# ==========================================
-def check_password():
-    """如果使用者輸入正確密碼，回傳 True，否則回傳 False"""
-
-    def password_entered():
-        """檢查使用者輸入的密碼是否與 secrets 中的設定相符"""
-        if st.session_state["password"] == st.secrets["LOGIN_PASSWORD"]:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # 驗證後刪除輸入框的暫存，保持乾淨
-        else:
-            st.session_state["password_correct"] = False
-
-    # 初始化 session state
-    if "password_correct" not in st.session_state:
-        # 第一次進入，顯示輸入框
-        st.text_input(
-            "請輸入系統密碼 / Password", type="password", on_change=password_entered, key="password"
-        )
-        return False
-    
-    elif not st.session_state["password_correct"]:
-        # 密碼錯誤，再次顯示輸入框
-        st.text_input(
-            "❌ 密碼錯誤，請重試 / Password", type="password", on_change=password_entered, key="password"
-        )
-        return False
-    
-    else:
-        # 密碼正確
-        return True
-
-# 🚨 執行檢查：如果沒通過，程式就停在這裡 (st.stop)
-if not check_password():
-    st.stop()
-
-# ==========================================
-# 👇 只有登入成功後，才會執行下面的程式碼
-# ==========================================
-
-
-# ==========================================
-# ⚙️ 第一部分：產生模板 (V5 + 真實名單)
+# ⚙️ 第一部分：產生模板 (修正版：六日不排班)
 # ==========================================
 def generate_nurse_template_bytes(year, month):
     wb = Workbook()
@@ -66,7 +20,7 @@ def generate_nurse_template_bytes(year, month):
     fill_header = PatternFill(start_color="7030A0", end_color="7030A0", fill_type="solid") # 紫色
     center_align = Alignment(horizontal='center', vertical='center')
     
-    # Sheet 0
+    # Sheet 0: 全域控制台
     ws0 = wb.active; ws0.title = "0_全域控制台"
     ws0.append(['項目', '數值', '說明'])
     ws0.append(['年份', year, '設定排班年份'])
@@ -75,13 +29,16 @@ def generate_nurse_template_bytes(year, month):
 
     # Sheet 1: 行事曆
     ws1 = wb.create_sheet("1_醫師班表與營業日")
+    # 產生該月所有日期
     dates = pd.date_range(start=f'{year}-{month}-01', end=f'{year}-{month}-{pd.Period(f"{year}-{month}").days_in_month}')
     weekday_map = {0:'一', 1:'二', 2:'三', 3:'四', 4:'五', 5:'六', 6:'日'}
     ws1.append(['日期', '星期', '時段', '甲院_醫師', '乙院_醫師', '營業狀態'])
     
     row_count = 1
     for d in dates:
-        if d.weekday() >= 6: continue # 週日休
+        # ★★★ 修正這裡：跳過週六(5) 和 週日(6) ★★★
+        if d.weekday() >= 5: continue 
+        
         d_str = d.strftime('%Y/%m/%d')
         wk = weekday_map[d.weekday()]
         status = '營業'
@@ -97,38 +54,26 @@ def generate_nurse_template_bytes(year, month):
         dv = DataValidation(type="list", formula1='"營業,休診"', allow_blank=False)
         ws1.add_data_validation(dv); dv.add(f'F2:F{row_count}')
 
-    # Sheet 2: 人員設定 (★修正：預填真實名單★)
+    # Sheet 2: 人員設定
     ws2 = wb.create_sheet("2_人員設定")
     headers2 = ['序號', '姓名', '員工編號', '身分 (下拉)', '職能 (下拉)', '本月個人目標 (數字)', '備註', '週一 (固定)', '週二 (固定)', '週三 (固定)', '週四 (固定)', '週五 (固定)', '週六 (固定)']
     ws2.append(headers2)
-    
-    # 真實人員資料 (依據提供的圖片)
-    # [序號, 姓名, 員編, 身分, 職能, 目標(預設40/0), 備註, 週一~週六固定班]
-    real_staff_data = [
-        [1, '品', 'NS014', 'FT', 'Nurse', 40, '', '', '', '', '', '', ''],
-        [2, '智', 'NS028', 'FT', 'Nurse', 40, '', '', '', '', '', '', ''],
-        [3, '廖', 'NS031', 'FT', 'Nurse', 40, '', '', '', '', '', '', ''],
-        [4, '淑', 'FD043', 'FT', 'Admin', 40, '', '', '', '', '', '', ''],
-        [5, '喬', 'FD021', 'FT', 'Admin', 40, '', '', '', '', '', '', ''],
-        [6, '淇', 'FD032', 'FT', 'Admin', 40, '', '', '', '', '', '', ''],
-        [7, '芯', 'FD054', 'PT', 'Admin', 0,  '', '', '', '', '', '', ''],
-        [8, '圩', 'FD053', 'PT', 'Admin', 0,  '', '', '', '', '', '', '']
-    ]
-
-    for row in real_staff_data:
-        ws2.append(row)
+    # 預填範例
+    ws2.append([1, '範例-護理長', 'N001', 'FT', 'Nurse', 44, '', '', '', '', '', '', ''])
+    ws2.append([2, '範例-行政', 'A001', 'FT', 'Admin', 44, '', '', '', '', '', '', ''])
+    ws2.append([3, '範例-兼職', 'P001', 'PT', 'Nurse', 0, '', 'A', 'B', '', '', '', ''])
     
     for cell in ws2[1]: cell.font = font_header; cell.fill = fill_header; cell.alignment = center_align
     dv_id = DataValidation(type="list", formula1='"FT,PT"', allow_blank=True); ws2.add_data_validation(dv_id); dv_id.add('D2:D100')
     dv_role = DataValidation(type="list", formula1='"Nurse,Admin"', allow_blank=True); ws2.add_data_validation(dv_role); dv_role.add('E2:E100')
 
-    # Sheet 3
+    # Sheet 3: 例外請假
     ws3 = wb.create_sheet("3_例外請假")
     ws3.append(['姓名', '日期 (YYYY/MM/DD)', '時段 (下拉)', '類型 (下拉)', '備註'])
     for cell in ws3[1]: cell.font = font_header; cell.fill = fill_header
     dv_type = DataValidation(type="list", formula1='"OFF,ON,PT_OK"', allow_blank=True); ws3.add_data_validation(dv_type); dv_type.add('D2:D200')
 
-    # Sheet 4
+    # Sheet 4: 醫師人力規則
     ws4 = wb.create_sheet("4_醫師人力規則")
     ws4.append(['醫師姓名 (關鍵字)', '需配置人力'])
     ws4.append(['劉醫師', 3]); ws4.append(['莊醫師', 2]); ws4.append(['薛醫師', 2]); ws4.append(['預設值', 2])
@@ -146,7 +91,6 @@ class ClinicSchedulerNurse:
     def __init__(self, input_file):
         self.input_file = input_file
         self.schedule_log_matrix = []
-        self.schedule_log_v8 = []
         self.staff_targets = {}
         self.off_lookup_map = {} 
         self.on_lookup_map = {}  
@@ -155,6 +99,7 @@ class ClinicSchedulerNurse:
     def load_data(self):
         try:
             self.df_calendar = pd.read_excel(self.input_file, sheet_name='1_醫師班表與營業日')
+            # 確保日期格式正確
             self.df_calendar['日期'] = pd.to_datetime(self.df_calendar['日期']).dt.normalize()
             
             self.df_staff = pd.read_excel(self.input_file, sheet_name='2_人員設定')
@@ -202,6 +147,7 @@ class ClinicSchedulerNurse:
         # Fixed Rule Check
         wk_map = {0:'週一', 1:'週二', 2:'週三', 3:'週四', 4:'週五', 5:'週六', 6:'週日'}
         col_name = f"{wk_map[date_ts.weekday()]} (固定)"
+        # 防呆：如果 Excel 表格裡沒有這一欄 (例如沒寫週六週日)，預設為空
         rule = str(staff_row.get(col_name, '')).upper()
         
         if staff_row['身分 (下拉)'] == 'PT':
@@ -360,6 +306,7 @@ class ClinicSchedulerNurse:
         for (nm, d_str), shifts in self.off_lookup_map.items():
             if nm in row_map:
                 r = row_map[nm]
+                # 簡單處理：整欄標休
                 pass 
 
         # Formulas
@@ -465,28 +412,27 @@ def convert_nurse_erp(input_file):
 # ==========================================
 # 📱 介面 (Purple Theme)
 # ==========================================
-st.set_page_config(page_title="晉安毅安護理師智慧排班系統", layout="wide", page_icon="💉")
+st.set_page_config(page_title="晉安毅安護理師智慧牌班系統", layout="wide", page_icon="💉")
 
 st.markdown("""
     <style>
     .main-title { font-size: 36px; font-weight: bold; color: #7030A0; text-align: center; margin-bottom: 20px; }
     .sub-title { font-size: 20px; color: #555; text-align: center; margin-bottom: 30px; }
     </style>
-    <div class="main-title">💉 晉安毅安護理師智慧排班系統</div>
+    <div class="main-title">💉 晉安毅安護理師智慧牌班系統</div>
     <div class="sub-title">自動化排班流程：產生模板 ➡️ 執行排班 ➡️ 轉檔 ERP</div>
 """, unsafe_allow_html=True)
 
 tab1, tab2, tab3 = st.tabs(["1️⃣ 產生模板", "2️⃣ 執行排班", "3️⃣ 轉檔 ERP"])
 
 with tab1:
-    st.header("產生空白輸入表 (模板)")
-    st.info("請選擇年份與月份，下載後的 Excel 已包含預填的真實人員資料。")
+    st.header("產生空白輸入表")
     c1, c2 = st.columns(2)
     with c1: year = st.number_input("年份", 2024, 2030, 2026)
     with c2: month = st.number_input("月份", 1, 12, 2)
     if st.button("🚀 下載模板", type="primary"):
         st.download_button("📥 下載 Excel", generate_nurse_template_bytes(year, month), 
-                           f"【護理師輸入表】{year}年{month}月_真實資料版.xlsx")
+                           f"【護理師輸入表】{year}年{month}月.xlsx")
 
 with tab2:
     st.header("執行排班")
@@ -494,7 +440,7 @@ with tab2:
     if f and st.button("⚡ 開始排班", type="primary"):
         with st.spinner("正在進行護理師輪替排班..."):
             res, msg = run_nurse_scheduler(f)
-            if res: st.success(msg); st.download_button("📥 下載結果", res, "【護理師排班結果】V10_儀表板版.xlsx")
+            if res: st.success(msg); st.download_button("📥 下載結果", res, "【護理師排班結果】.xlsx")
             else: st.error(msg)
 
 with tab3:
