@@ -1,0 +1,7 @@
+# 忽略 Streamlit 的機密設定
+.streamlit/
+secrets.toml
+
+# 忽略 Python 的快取檔 (垃圾檔)
+__pycache__/
+*.pyc
