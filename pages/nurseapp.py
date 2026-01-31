@@ -10,7 +10,7 @@ from datetime import datetime
 import io
 
 # ==========================================
-# ⚙️ 第一部分：產生模板 (修正版：六日不排班)
+# ⚙️ 第一部分：產生模板 (修正版：恢復V10預設值與下拉選單)
 # ==========================================
 def generate_nurse_template_bytes(year, month):
     wb = Workbook()
@@ -27,23 +27,21 @@ def generate_nurse_template_bytes(year, month):
     ws0.append(['月份', month, '設定排班月份'])
     for cell in ws0[1]: cell.font = font_header; cell.fill = fill_header
 
-    # Sheet 1: 行事曆
+    # Sheet 1: 行事曆 (維持六日不排班)
     ws1 = wb.create_sheet("1_醫師班表與營業日")
-    # 產生該月所有日期
     dates = pd.date_range(start=f'{year}-{month}-01', end=f'{year}-{month}-{pd.Period(f"{year}-{month}").days_in_month}')
     weekday_map = {0:'一', 1:'二', 2:'三', 3:'四', 4:'五', 5:'六', 6:'日'}
     ws1.append(['日期', '星期', '時段', '甲院_醫師', '乙院_醫師', '營業狀態'])
     
     row_count = 1
     for d in dates:
-        # ★★★ 修正這裡：跳過週六(5) 和 週日(6) ★★★
+        # ★★★ 這裡維持原本設定：跳過週六(5) 和 週日(6) ★★★
         if d.weekday() >= 5: continue 
         
         d_str = d.strftime('%Y/%m/%d')
         wk = weekday_map[d.weekday()]
         status = '營業'
         for shift in ['A', 'B', 'C']:
-            # 簡單預填，讓使用者自己改
             doc_a = '劉醫師' if shift != 'C' else '莊醫師'
             doc_b = '王醫師' if shift != 'B' else '薛醫師'
             ws1.append([d_str, wk, shift, doc_a, doc_b, status])
@@ -54,24 +52,49 @@ def generate_nurse_template_bytes(year, month):
         dv = DataValidation(type="list", formula1='"營業,休診"', allow_blank=False)
         ws1.add_data_validation(dv); dv.add(f'F2:F{row_count}')
 
-    # Sheet 2: 人員設定
+    # Sheet 2: 人員設定 (修正：恢復 V10 預設名單)
     ws2 = wb.create_sheet("2_人員設定")
     headers2 = ['序號', '姓名', '員工編號', '身分 (下拉)', '職能 (下拉)', '本月個人目標 (數字)', '備註', '週一 (固定)', '週二 (固定)', '週三 (固定)', '週四 (固定)', '週五 (固定)', '週六 (固定)']
     ws2.append(headers2)
-    # 預填範例
-    ws2.append([1, '範例-護理長', 'N001', 'FT', 'Nurse', 44, '', '', '', '', '', '', ''])
-    ws2.append([2, '範例-行政', 'A001', 'FT', 'Admin', 44, '', '', '', '', '', '', ''])
-    ws2.append([3, '範例-兼職', 'P001', 'PT', 'Nurse', 0, '', 'A', 'B', '', '', '', ''])
+    
+    # ★★★ 恢復：依照 V10 截圖填入預設資料 ★★★
+    # 格式: [序號, 姓名, 員編, 身分, 職能, 目標, 備註, 固定休...]
+    default_staff = [
+        [1, '品', 'NS014', 'FT', 'Nurse', 38, '', '', '', '', '', '', ''],
+        [2, '智', 'NS028', 'FT', 'Nurse', 39, '', '', '', '', '', '', ''],
+        [3, '廖', 'NS031', 'FT', 'Nurse', 40, '', '', '', '', '', '', ''],
+        [4, '淑', 'FD043', 'FT', 'Admin', 40, '', '', '', '', '', '', ''],
+        [5, '喬', 'FD021', 'FT', 'Admin', 38, '', '', '', '', '', '', ''],
+        [6, '淇', 'FD032', 'FT', 'Admin', 40, '', '', '', '', '', '', ''],
+        [7, '芯', 'FD054', 'PT', 'Admin', 0,  '', '', '', '', '', '', ''],
+        [8, '??', 'FD053', 'PT', 'Admin', 0,  '', '', '', '', '', '', '']
+    ]
+    for row in default_staff:
+        ws2.append(row)
     
     for cell in ws2[1]: cell.font = font_header; cell.fill = fill_header; cell.alignment = center_align
-    dv_id = DataValidation(type="list", formula1='"FT,PT"', allow_blank=True); ws2.add_data_validation(dv_id); dv_id.add('D2:D100')
-    dv_role = DataValidation(type="list", formula1='"Nurse,Admin"', allow_blank=True); ws2.add_data_validation(dv_role); dv_role.add('E2:E100')
+    
+    # 下拉選單
+    dv_id = DataValidation(type="list", formula1='"FT,PT"', allow_blank=True)
+    ws2.add_data_validation(dv_id); dv_id.add('D2:D100')
+    
+    dv_role = DataValidation(type="list", formula1='"Nurse,Admin"', allow_blank=True)
+    ws2.add_data_validation(dv_role); dv_role.add('E2:E100')
 
-    # Sheet 3: 例外請假
+    # Sheet 3: 例外請假 (修正：恢復時段下拉選單)
     ws3 = wb.create_sheet("3_例外請假")
     ws3.append(['姓名', '日期 (YYYY/MM/DD)', '時段 (下拉)', '類型 (下拉)', '備註'])
     for cell in ws3[1]: cell.font = font_header; cell.fill = fill_header
-    dv_type = DataValidation(type="list", formula1='"OFF,ON,PT_OK"', allow_blank=True); ws3.add_data_validation(dv_type); dv_type.add('D2:D200')
+    
+    # ★★★ 恢復：加入時段下拉選單 (C欄) ★★★
+    dv_shift = DataValidation(type="list", formula1='"A,B,C,AB,AC,BC,ABC"', allow_blank=True)
+    ws3.add_data_validation(dv_shift)
+    dv_shift.add('C2:C200')
+
+    # 類型下拉選單 (D欄)
+    dv_type = DataValidation(type="list", formula1='"OFF,ON,PT_OK"', allow_blank=True)
+    ws3.add_data_validation(dv_type)
+    dv_type.add('D2:D200')
 
     # Sheet 4: 醫師人力規則
     ws4 = wb.create_sheet("4_醫師人力規則")
@@ -85,7 +108,7 @@ def generate_nurse_template_bytes(year, month):
     return output
 
 # ==========================================
-# ⚙️ 第二部分：排班引擎 (V10.13 邏輯移植)
+# ⚙️ 第二部分：排班引擎 (邏輯完全未動)
 # ==========================================
 class ClinicSchedulerNurse:
     def __init__(self, input_file):
@@ -337,7 +360,7 @@ def run_nurse_scheduler(input_file):
     return scheduler.run(), "排班成功"
 
 # ==========================================
-# ⚙️ 第三部分：ERP 轉檔 (V10)
+# ⚙️ 第三部分：ERP 轉檔 (邏輯完全未動)
 # ==========================================
 def convert_nurse_erp(input_file):
     try:
